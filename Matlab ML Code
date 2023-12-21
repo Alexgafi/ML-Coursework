@@ -1,0 +1,397 @@
+ 
+% We will load the Data and put it in a table. We will name the columns
+% based on the variables in the DataSet
+ open ML_Lab4/processed.cleveland2.csv
+ load ("ML_Lab4/processed.cleveland2.csv");
+  cleveland_processed = csvread("ML_Lab4/processed.cleveland2.csv");
+ colNames = {'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'num'};
+ cleveland_processed = array2table(cleveland_processed, 'VariableNames', colNames);
+
+ %There were only a few missing variables in the Dataset, thus, we decided to
+ %delete the rows containing these
+ %We will now check for further missing variables 
+
+ missingValues = ismissing(cleveland_processed);
+ missingCount = sum(missingValues);
+ disp(missingCount);
+
+ cleveland_processed = rmmissing(cleveland_processed);
+
+
+ %Now that there are 0 missprocessed_cleveland2ing variables, we will check and eliminate any
+ %outliers. We will use the threshold for 3 SD away from the mean
+threshold = 3;
+disp ('Summary statistics before handling outliers:');
+disp(summary(cleveland_processed));
+
+isOutlier = abs(zscore(cleveland_processed.Variables)) > threshold;
+disp(isOutlier);
+sum(isOutlier);
+disp(sum(isOutlier));
+
+cleveland_processed = cleveland_processed(~any(isOutlier, 2), :);
+disp('Summary statistics after handling outliers:');
+disp(summary(cleveland_processed));
+
+% Now we will check for the distributions of each feature in the datatable
+%Using Descriptive Stats, Histograms and QQ Plots
+
+
+%We will draw boxplots with each variable in the data table 
+
+figure;
+
+numVariables = size(cleveland_processed, 2);
+
+for i = 1:numVariables
+    subplot(1, numVariables, i);
+    boxplot(cleveland_processed{:, i});
+    title(cleveland_processed.Properties.VariableNames{i});
+end
+
+sgtitle('Boxplots for Each Variable');
+
+%We will draw histograms to visualize the data
+
+figure;
+numColumns = size(cleveland_processed, 2);
+for i=1:numColumns
+subplot(numColumns, 3, 3*(i-1)+2);
+histogram(cleveland_processed.(i), 'Normalization', 'probability');
+title(['Histogram -', cleveland_processed.Properties.VariableNames{i}]);
+
+subplot(numColumns, 3, 3*(i-1)+2);
+normplot(cleveland_processed.(i));
+title(['Normal Probability Plot - ', cleveland_processed.Properties.VariableNames{i}]);
+
+subplot(numColumns, 3, 3*(i-1) +3);
+qqplot(cleveland_processed.(i));
+title(['QQ Plot -', cleveland_processed.Properties.VariableNames{i}]);
+
+end
+sgtitle('Descriptive Statistics, Histograms, QQ Plots');
+
+%Transform the target Variable in binaries for the analysis and update the
+%Table
+targetColumnName = 'num';
+targetColumn = cleveland_processed.(targetColumnName);
+binaryValues = double(targetColumn > 0);
+cleveland_processed.(targetColumnName) = binaryValues;
+
+
+% Now, we will check the correlations between variables as well as
+% correlations between each variable and the target variable 
+
+figure;
+matrix_cleveland_processed = table2array(cleveland_processed);
+heatmap(matrix_cleveland_processed, 'Colormap', jet(size(matrix_cleveland_processed, 2)), 'ColorMethod','count', 'ColorbarVisible','on' );
+title('Heatmap for the Table');
+
+%We will check for the correlation between variables to check for
+%Multicolinearity
+predictors = cleveland_processed(:, 1:end-1);
+target = cleveland_processed(:, end);
+
+
+
+correlationMatrix = corr(table2array(predictors));
+
+correlationMatrix2 = corr(table2array(cleveland_processed));
+
+correlationMatrix3 = corr(table2array([predictors target]));
+
+disp('Correlation Matrix: ');
+disp(correlationMatrix);
+
+disp('Correlation Matrix2');
+disp(correlationMatrix2);
+
+disp('Correlation Matrix3');
+disp(correlationMatrix);
+
+
+
+
+%Features are medical measurements of correct physiological metrics,
+%thus, there are not new features we can build. Also, the
+%features we selected were previously proven to be relevant for the target
+%variable
+
+%We will apply standardize the data using zscores to see if how it interfeeres Distribution and
+%correlation scores
+
+numericVariables = cleveland_processed{:, :};
+standardizedData = zscore(numericVariables);
+numVariables = size(numericVariables, 2);
+variableNames = colNames;
+
+figure;
+
+for i = 1:numVariables
+    subplot(3, numVariables, i);
+    histogram(numericVariables(:, i));
+    title(['Histogram:', variableNames{i}]);
+
+    subplot(3, numVariables, numVariables + i);
+    normplot(standardizedData(:,i));
+    title(['Normality Plot: ', variableNames{i}]);
+
+    subplot(3, numVariables, 2*numVariables + i);
+    qqplot(standardizedData(:, i));
+    title(['QQ Plot: ', variableNames{i}]);
+
+end
+
+
+
+%We will encode the categorical variables using dummyvar and update the new
+%DataTable
+
+categoricalVariableNames = cleveland_processed.Properties.VariableNames(iscategorical(cleveland_processed));
+
+cleveland_processed_catencoded = cleveland_processed;
+
+for i = 1:length(categoricalVariableNames)
+    variableName = categoricalVariableNames{i};
+    encoded = dummyvar(categorical(cleveland_processed.(variableName)), 'Prefix', [variableName, '_']);
+
+    cleveland_processed_catencoded = [cleveland_processed_catencoded, array2table(encoded, 'VariableNames', strcat([variableName, '_'], string(1:size(encoded, 2))))];
+end
+
+disp('One-hot Encoded Table');
+disp(cleveland_processed_catencoded);
+
+cleveland_processed = cleveland_processed_catencoded 
+
+
+
+%We will now split the data for training and testing for our models
+%We will use the standard 80% for training and 20% for testing, with a
+%random seed for reproducibility of 42
+
+rng(42);
+
+trainFraction = 0.8;
+
+%We will now shuffle the data in order to ensure that the order of the data
+%does not introduce any bias during the training process
+
+numObservations = size(cleveland_processed, 1);
+numTrain = round(trainFraction * numObservations);
+shuffledIndices = randperm(numObservations);
+shuffledTable = cleveland_processed(shuffledIndices, :);
+
+trainTable = shuffledTable(1:numTrain, :);
+testTable = shuffledTable(numTrain+1:end, :);
+
+
+
+%we will now split the data intro train and test sections
+
+X_train = trainTable(:, 1:end-1);
+Y_train = trainTable(:, end);
+
+X_test = testTable(:, 1:end-1);
+Y_test = testTable(:, end);
+
+%We transform the tables in arrays of numbers in order to run our analyses 
+
+X_train = table2array(X_train);
+Y_train = table2array(Y_train);
+X_test = table2array(X_test);
+Y_test = table2array(Y_test);
+
+% We will run a simple Logistic Regression Model for the Splitted Data
+% using fitglm
+
+
+logisticModel = fitglm(X_train, Y_train, 'Distribution', 'binomial', 'Link', 'logit');
+Y_pred = predict(logisticModel, X_test);
+Y_pred_binary = round(Y_pred);
+
+%Now we will evaluate the model using Accuracy, Precision, Recall,
+%Confusion Matrix
+
+confusionMatrix = confusionmat(Y_test, Y_pred_binary);
+accuracy = sum(diag(confusionMatrix)) / sum(confusionMatrix(:));
+precision = confusionMatrix(2, 2) / sum(confusionMatrix(:, 2));
+recall = confusionMatrix(2, 2) / sum(confusionMatrix(2, :));
+f1Score = 2 * (precision * recall) / (precision + recall);
+
+
+%Display the results
+
+disp('Confusion Matrix:');
+disp(confusionMatrix);
+disp(['Accuracy: ', num2str(accuracy)]);
+disp(['Precision: ', num2str(precision)]);
+disp(['Recall: ', num2str(recall)]);
+disp(['f1Score:', num2str(f1Score)]);
+
+
+
+ %We will set the target variables and the response ones
+
+ response.var = cleveland_processed.num;
+responseVariables = cleveland_processed.num;
+predictorVariables = cleveland_processed(:, {'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'});
+
+
+%Make the Logistic Regression model
+
+predictorNames = {'age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg', 'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal'};
+responsename = 'num';
+logisticModel = fitglm(cleveland_processed, ['num ~', strjoin(predictorNames, '+')], 'Distribution', 'binomial', 'Link', 'logit');
+disp(logisticModel);
+predictions = round(predict(logisticModel, cleveland_processed));
+disp(predictions);
+accuracy = sum(predictions == cleveland_processed.num)/ height(cleveland_processed);
+disp(['Accuracy:' num2str(accuracy)]);
+
+
+%We will now optimize the parameters using Lambda, Regularization and ridge to get better performance Results
+
+
+t = templateLinear('Learner', 'logistic', 'Regularization', 'ridge', 'Lambda', logspace(-6, 6, 13));
+hyperparameters = 'Lambda';
+logisticModel = fitclinear(X_train, Y_train, 'Learner', 'logistic', 'OptimizeHyperparameters', hyperparameters, 'HyperparameterOptimizationOptions', struct('AcquisitionFunctionName', 'expected-improvement-plus'));
+
+
+Y_pred2 = predict(logisticModel, X_test);
+Y_pred_binary2 = round(Y_pred2);
+
+confusionMatrix = confusionmat(Y_test, Y_pred_binary2);
+accuracy = sum(diag(confusionMatrix)) / sum(confusionMatrix(:));
+precision = confusionMatrix(2, 2) / sum(confusionMatrix(:, 2));
+recall = confusionMatrix(2, 2) / sum(confusionMatrix(2, :));
+f1Score = 2 * (precision * recall) / (precision + recall);
+
+disp('Confusion Matrix:');
+disp(confusionMatrix);
+disp(['Accuracy: ', num2str(accuracy)]);
+disp(['Precision: ', num2str(precision)]);
+disp(['Recall: ', num2str(recall)]);
+disp(['f1Score:', num2str(f1Score)]);
+
+
+%We will now make a new logistic regression model optimizing the
+%hyperparameters by using the 'OptimizeHyperparameters' function in fitclinear
+
+t2 = templateLinear('Learner', 'logistic');
+hyperparameters = struct(...
+    'Lambda', optimizableVariable('Lambda', [1e-6, 1e6], 'Transform', 'log'));
+opts = struct('AcquisitionFunctionName', 'expected-improvement-plus', 'Optimizer', 'bayesopt');
+logisticModel = fitclinear(X_train, Y_train, 'OptimizeHyperparameters', 'auto', 'HyperparameterOptimizationOptions', opts);
+disp('Optimal Hyperparameters:');
+disp(logisticModel);
+
+Y_pred3 = predict(logisticModel, X_test);
+Y_pred_binary3 = round(Y_pred3);
+
+%We will now display the test performance results 
+
+confusionMatrix = confusionmat(Y_test, Y_pred_binary3);
+accuracy = sum(diag(confusionMatrix)) / sum(confusionMatrix(:));
+precision = confusionMatrix(2, 2) / sum(confusionMatrix(:, 2));
+recall = confusionMatrix(2, 2) / sum(confusionMatrix(2, :));
+f1Score = 2 * (precision * recall) / (precision + recall);
+
+disp('Confusion Matrix:');
+disp(confusionMatrix);
+disp(['Accuracy: ', num2str(accuracy)]);
+disp(['Precision: ', num2str(precision)]);
+disp(['Recall: ', num2str(recall)]);
+disp(['f1Score:', num2str(f1Score)]);
+
+%Performance tests suggest that hyperparameter optimization lef to considerably better
+%results
+
+% We will now run a simple Random Forests model on the splitted Data
+
+numTrees = 100;
+
+randomForestModel = TreeBagger(numTrees, X_train, Y_train, 'Method', 'classification');
+Y_pred = predict(randomForestModel, X_test);
+
+Y_pred = str2double(Y_pred);
+
+
+%Evaluate the Model
+
+confusionMatrix_rf = confusionmat(Y_test, Y_pred_binary);
+accuracy_rf = sum(diag(confusionMatrix_rf)) / sum(confusionMatrix_rf(:, 2));
+precision_rf = confusionMatrix_rf(2,2) / sum(confusionMatrix_rf(2, :));
+recall_rf = confusionMatrix_rf(2, 2) / sum(confusionMatrix_rf(2, :));
+
+%Display the Results
+
+disp('Random Forrest Results:');
+disp('Confusion Matrix:');
+disp(confusionMatrix_rf);
+disp(['Accuracy:', num2str(accuracy_rf)]);
+disp(['Precision:', num2str(precision_rf)]);
+disp(['Recall:', num2str(recall_rf)]);
+
+
+
+%Trail 2
+
+
+
+%We will test different parameters on the Random Fortests model and see how
+%they influence performance tests. Using a for loop, we willselect the
+%hyperparameters with the highest scores and apply them on the Random
+%Fortests analysis
+
+
+n_estimators_values = [50, 100, 150];
+max_depth_values = [5, 10, 15];
+min_leaf_size_values = [1, 5, 10];
+
+bestAccuracy = 0;
+bestModel = [];
+
+
+for n_estimators = n_estimators_values
+    for max_depth = max_depth_values
+        for min_leaf_size = min_leaf_size_values
+            % Train random forest model
+            randomForestModel = TreeBagger(n_estimators, X_train, Y_train, ...
+                'Method', 'classification', 'MaxNumSplits', max_depth, 'MinLeafSize', min_leaf_size);
+
+            % Make predictions on the test set
+            Y_pred_rf = predict(randomForestModel, X_test);
+
+            % Convert predicted labels to double
+            Y_pred_rf = str2double(Y_pred_rf);
+
+            % Evaluate the performance of the model (optional)
+            confusionMat_rf = confusionmat(Y_test, Y_pred_rf);
+            accuracy_rf = sum(diag(confusionMat_rf)) / sum(confusionMat_rf(:));
+            precision_rf = confusionMatrix_rf(2,2) / sum(confusionMatrix_rf(2, :));
+            recall_rf = confusionMatrix_rf(2, 2) / sum(confusionMatrix_rf(2, :));
+
+
+            % Check if this set of hyperparameters gives a better accuracy
+            if accuracy_rf > bestAccuracy
+                bestAccuracy = accuracy_rf;
+                bestModel = randomForestModel;
+            end
+
+            % Display or store any additional information if needed
+            disp(['Hyperparameters: n_estimators=' num2str(n_estimators) ...
+                ', MaxNumSplits=' num2str(max_depth) ', MinLeafSize=' num2str(min_leaf_size) ...
+                ', Accuracy=' num2str(accuracy_rf)]);
+        end
+    end
+end
+
+%We will now display the performance tests scores for the best
+%hyperparameters
+
+disp('Best Random Forest Model:');
+disp(bestModel);
+disp(['Best Accuracy: ' num2str(bestAccuracy)]);
+
+
+
